@@ -31,7 +31,10 @@ public partial class MainWindow : Window
 
         if (files.Count > 0)
         {
-            _selectedFilePath = files[0].Path.AbsolutePath;
+            // Преобразуем file:// URI в обычный путь
+            var uri = new Uri(files[0].Path.AbsolutePath);
+            _selectedFilePath = uri.LocalPath; // даст "C:\...\image.png"
+
             StatusTextBlock.Text = $"Выбран: {System.IO.Path.GetFileName(_selectedFilePath)}";
             ConvertButton.IsEnabled = true;
             await LoadPreviewAsync(_selectedFilePath);
