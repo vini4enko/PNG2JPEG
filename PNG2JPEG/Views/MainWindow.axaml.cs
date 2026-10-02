@@ -6,8 +6,8 @@ using Avalonia.Threading;
 using System.Threading.Tasks;
 using ImageMagick;
 
-
 namespace PngToJpegConverter;
+
 public partial class MainWindow : Window
 {
     private string? _selectedFilePath;
@@ -33,7 +33,7 @@ public partial class MainWindow : Window
         {
             // Преобразуем file:// URI в обычный путь
             var uri = new Uri(files[0].Path.AbsolutePath);
-            _selectedFilePath = uri.LocalPath; // даст "C:\...\image.png"
+            _selectedFilePath = uri.LocalPath;
 
             StatusTextBlock.Text = $"Выбран: {System.IO.Path.GetFileName(_selectedFilePath)}";
             ConvertButton.IsEnabled = true;
@@ -45,8 +45,17 @@ public partial class MainWindow : Window
     {
         try
         {
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel == null) return;
+
+            // Получаем файл по пути (новый API)
             var uri = new Uri(path);
-            var fileRef = await TopLevel.GetTopLevel(this)!.StorageProvider.TryGetFileFromPathAsync(uri);
+            var fileRef = await topLevel.StorageProvider.TryGetFileFromPathAsync(uri);
+            if (fileRef == null)
+            {
+                StatusTextBlock.Text = "Не удалось получить доступ к файлу.";
+                return;
+            }
 
             using var stream = await fileRef.OpenReadAsync();
 
@@ -71,36 +80,6 @@ public partial class MainWindow : Window
         }
     }
 
-
-    /*
-    private async Task LoadPreviewAsync(string path)
-    {
-        try
-        {
-            // Используем Task.Run, чтобы не замораживать интерфейс при загрузке больших PNG
-            var bitmap = await Task.Run(() =>
-            {
-                // ВАЖНО: MagickImage должен быть создан и уничтожен внутри этого блока Task.Run
-                using var magicImage = new MagickImage(path);
-                magicImage.Resize(400, 0);
-
-                return magicImage.ToWriteableBitmap();//.ToAvaloniaBitmap();
-            });
-
-            await Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                PreviewImage.Source = bitmap;
-            });
-        }
-        catch (Exception ex)
-        {
-            await Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                StatusTextBlock.Text = "Ошибка загрузки превью: " + ex.Message;
-            });
-        }
-    }*/
-
     private async void ConvertButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (string.IsNullOrEmpty(_selectedFilePath)) return;
@@ -111,40 +90,63 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Путь для выходного файла можно оставить обычным (он будет в той же папке, что и исходный)
-        string outputPath = System.IO.Path.ChangeExtension(_selectedFilePath, ".jpg");
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel == null) return;
 
         try
         {
-            // 1. Получаем FileReference по URI пути (который мы уже сохранили как LocalPath)
-            var uri = new Uri(_selectedFilePath);
-            var topLevel = TopLevel.GetTopLevel(this);
-            if (topLevel == null)
+            // --- 1. Чтение исходного файла через поток ---
+
+            var inputUri = new Uri(_selectedFilePath);
+            var inputFile = await topLevel.StorageProvider.TryGetFileFromPathAsync(inputUri);
+            if (inputFile == null)
             {
-                StatusTextBlock.Text = "Не удалось получить окно.";
+                StatusTextBlock.Text = "Не удалось получить доступ к исходному файлу.";
                 return;
             }
 
-            var fileRef = await topLevel.StorageProvider.TryGetFileFromPathAsync(uri);
+            // --- 2. Диалог выбора места сохранения ---
 
-            // 2. Открываем поток на чтение
-            using var readStream = await fileRef.OpenReadAsync();
+            var defaultName = System.IO.Path.ChangeExtension(
+                    System.IO.Path.GetFileName(_selectedFilePath), ".jpg");
 
-            // 3. Конвертируем в памяти (без промежуточного сохранения)
+            var saveFile = await topLevel.StorageProvider.SaveFilePickerAsync(
+                new FilePickerSaveOptions
+                {
+                    Title = "Сохранить как JPEG",
+                    SuggestedFileName = defaultName,
+                    FileTypeChoices = new[]
+                    {
+                        new FilePickerFileType("JPEG files") { Patterns = new[] { "*.jpg" } }
+                    }
+                });
+
+
+            if (saveFile == null)
+            {
+                StatusTextBlock.Text = "Сохранение отменено.";
+                return;
+            }
+
+            StatusTextBlock.Text = "Конвертация...";
+
+            // --- 3. Конвертация: читаем поток, пишем поток ---
+
+            using var readStream = await inputFile.OpenReadAsync();
+            using var writeStream = await saveFile.OpenWriteAsync();
+
             await Task.Run(() =>
             {
                 using var image = new MagickImage(readStream);
                 image.ColorAlpha(MagickColors.White);
                 image.Format = MagickFormat.Jpeg;
                 image.Quality = (uint)quality;
-
-                // 4. Записываем в выходной файл (тут уже можно по пути, т.к. мы сами создаём файл)
-                image.Write(outputPath);
+                image.Write(writeStream);
             });
 
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                StatusTextBlock.Text = $"Готово! Файл сохранён: {System.IO.Path.GetFileName(outputPath)}";
+                StatusTextBlock.Text = $"Готово! Сохранено: {saveFile.Name}";
             });
         }
         catch (Exception ex)
@@ -155,48 +157,4 @@ public partial class MainWindow : Window
             });
         }
     }
-
-    /*
-    private async void ConvertButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
-    {
-        if (string.IsNullOrEmpty(_selectedFilePath)) return;
-
-        if (!int.TryParse(QualityTextBox.Text, out int quality) || quality < 1 || quality > 100)
-        {
-            StatusTextBlock.Text = "Введите корректное значение качества от 1 до 100.";
-            return;
-        }
-
-        string outputPath = System.IO.Path.ChangeExtension(_selectedFilePath, ".jpg");
-
-        try
-        {
-            await Task.Run(() =>
-            {
-                using var image = new MagickImage(_selectedFilePath);
-                image.ColorAlpha(MagickColors.White);
-                image.Format = MagickFormat.Jpeg;
-                image.Quality = (uint)quality;
-
-                // ИСПРАВЛЕНИЕ 2: В новых версиях нет ColorProfile.Srgb. 
-                // Для принудительного перевода в sRGB используется встроенный профиль.
-                // Класс ColorProfile имеет конструктор, принимающий ColorSpace.
-                //image.AddProfile(new ColorProfile(ColorSpace.sRGB));
-
-                image.Write(outputPath);
-            });
-
-            await Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                StatusTextBlock.Text = $"Готово! Файл сохранен: {System.IO.Path.GetFileName(outputPath)}";
-            });
-        }
-        catch (Exception ex)
-        {
-            await Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                StatusTextBlock.Text = "Ошибка конвертации: " + ex.Message;
-            });
-        }
-    }*/
 }
