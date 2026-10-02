@@ -1,0 +1,23 @@
+﻿<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PngToJpegConverter.MainWindow"
+        Width="500" Height="400" Title="PNG to JPEG Converter">
+    <StackPanel Margin="20" Spacing="15">
+        <Button x:Name="SelectFileButton"
+                Content="Выбрать PNG файл..."
+                Click="SelectFileButton_Click"/>
+        <TextBox x:Name="QualityTextBox"
+                 PlaceholderText="Качество JPEG (1-100)"
+                 Text="90" />
+        <Button x:Name="ConvertButton"
+                Content="Конвертировать в JPEG"
+                Click="ConvertButton_Click"
+                IsEnabled="False"/>
+        <TextBlock x:Name="StatusTextBlock"
+                   Text="Выберите файл для начала"/>
+        <Image x:Name="PreviewImage"
+               Width="400"
+               Height="300"
+               Stretch="Uniform" />
+    </StackPanel>
+</Window>
